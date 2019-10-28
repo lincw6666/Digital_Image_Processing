@@ -19,10 +19,8 @@ class My_Image:
         self.origin_img = None
         self.img = None
         self.img_name = None
-        self.is_func_valid = int(0)
-        self.func_param = [
-            [0.0 for _ in img_f.func_param_name[i]]\
-                for i in range(len(img_f.func_param_name))]
+        self.func = []
+        self.func_param = []
         self.load_image(path)
     
     # @path: It should start with './'. EX: './images/'.
@@ -57,28 +55,6 @@ class My_Image:
         except:
             print('[Image:write_image]',\
                 'Error!! Can\'t save image to file!! :', path)
-    
-    # If you want to use the img_f.func_list[func_id] function, you need to set
-    # the corresponding bit in is_func_valid to 1. If you don't want to use it,
-    # set to 0. 'set_func_valid' helps you to do so.
-    # 
-    # @func_id: The [func_id]th function in img_f.func_list.
-    # @is_valid: Default to True. True if the function is valid, vice versa. 
-    def set_func_valid(self, func_id, is_valid=True):
-        assert type(func_id)!=type(int), '[Image:set_func_valid] \'func_id\''+\
-            ' needs to be an integer!!'
-        assert type(is_valid)!=type(bool), '[Image:set_func_valid] '+\
-            '\'is_valid\' needs to be an integer!!'
-        if is_valid:
-            self.is_func_valid = self.is_func_valid | (1<<func_id)
-        else:
-            self.is_func_valid = self.is_func_valid & ~(1<<func_id)
-
-
-    # Check whether the [func_id]th function is valid.
-    # @func_id: The [func_id]th function.
-    def valid_func(self, func_id):
-        return (self.is_func_valid&(1<<func_id)) != 0
 
 
     # Save the parameters for each function to a file. One line contains
@@ -89,7 +65,6 @@ class My_Image:
     #     1,2,3
     #     4,5,6
     #
-    # @path: Path to the file. Please remind that it must be a .csv file.
     def save_param(self):
         path = self.img_name.split('/')
         path[-1] = path[-1].replace('bmp', 'csv')
@@ -98,7 +73,7 @@ class My_Image:
         
         try:
             df = pd.DataFrame({
-                'is_func_valid': self.is_func_valid,
+                'func_name': self.func,
                 'func_param': self.func_param
                 })
             df.to_csv(path, index=False)
@@ -109,12 +84,16 @@ class My_Image:
     # Apply all the valid image processing functions on the image.
     def apply_processing_function(self):
         self.img = self.origin_img
-        for i in range(len(img_f.func_list)):
-            if self.valid_func(i):
-                self.img = img_f.base_func_wrapper(
-                    img_f.func_list[i],
-                    self.img,
-                    **dict(zip(img_f.func_param_name[i], self.func_param[i])))
+        for i in range(len(self.func)):
+            func_id = img_f.func_name_to_id(self.func[i])
+            self.img = img_f.base_func_wrapper(
+                img_f.func_list[func_id], self.img,
+                **dict(
+                    zip(
+                        img_f.func_param_name[func_id], self.func_param[i]
+                    )
+                )
+            )
 
 
 def load_image(dir='./images/'):

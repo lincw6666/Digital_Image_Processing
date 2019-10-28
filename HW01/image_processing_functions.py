@@ -1,12 +1,23 @@
 import numpy as np
 from cv2 import cv2
-import image_processing_data_structure as img_ds
 import sys
 
 
 def __is_image_type_valid(img):
     assert type(img)!=type(np.ndarray), '[gamma_correction] Error!! Invalid '+\
         'image type!! : '+str(type(img))
+
+
+def __image_reshape(img, shape):
+    __is_image_type_valid(img)
+    assert img.shape[2] == 3, '[__image_reshape] Error!! Only accept 3 '+\
+        'channels image!!'
+    h, w, c = shape
+    assert c == 3, '[__image_reshape] Error!! Only reshape to 3 channels '+\
+        'image!!'
+    assert img.shape[0] == h*w, '[__image_reshape] Error!! Unmatch image '+\
+        'and reshape image size!!'
+    return np.array([img[w*i:w*(i+1), 0, :] for i in range(h)])
 
 
 # We apply all the function through this wrapper.
@@ -55,9 +66,11 @@ def __convolution(img, kernel):
     # Main task.
     vectorized_img = __array_to_vector(img, kernel.shape)
     kernel = kernel.reshape(-1, 1)
-    return np.stack(
+    return __image_reshape(
+        np.stack(
             [np.matmul(vec_img, kernel) for vec_img in vectorized_img], axis=-1
-        ).reshape(img.shape)
+        ),
+        img.shape)
 
 
 def gamma_correction(img, c=1.0, gamma=1.0):
@@ -100,41 +113,44 @@ def gaussian_filter(img, kernel_size=3, sigma=1):
     return __convolution(img, kernel).astype(np.uint8)
 
 
-def bilateral_filter(img, kernel_size=3, sigma=1):
+def bilateral_filter(img, kernel_size=3, sigma1=1, sigma2=0.1):
     kernel_size = __check_spacial_filter_kernel_size(
         kernel_size, 'bilateral_filter')
     # Build a kernel which is similar to Gaussian filter.
     half_size = kernel_size // 2
     x, y = np.mgrid[-half_size:half_size+1, -half_size:half_size+1 ]
-    kernel = np.exp(-((x-y)**2)/(2.0*sigma**2)) # The only differece from
-                                                # Gaussian filter.
+    kernel = -(x**2+y**2)/(2.0*sigma1**2)
     kernel = kernel.reshape(1, -1)
     # Apply additional weight.
-    ret = __array_to_vector(img, (kernel_size, kernel_size))
+    vectorized_img = __array_to_vector(img, (kernel_size, kernel_size))
     weight = np.array([
         x - np.repeat(
-            [x[:, 0]], kernel_size**2, axis=0
-        ).transpose() for x in ret])
-    weight = np.exp(-(weight**2)/(2.0*sigma**2))
-    kernel = [w*kernel for w in weight]
+            [x[:, half_size]], kernel_size**2, axis=0
+        ).transpose() for x in vectorized_img])
+    kernel = np.exp(kernel - (weight**2)/(2.0*sigma2**2))
     kernel_sum = np.array(
         [np.sum(k, axis=-1).transpose()[:, None] for k in kernel]
     )
     kernel_sum = np.where(kernel_sum > 0, kernel_sum, 1.0)
     kernel = kernel / kernel_sum
-    return np.stack(
-            np.sum(ret*kernel, axis=-1), axis=-1
-        ).reshape(img.shape).astype(np.uint8)
+    return __image_reshape(
+        np.stack(
+            [x for x in np.sum(vectorized_img*kernel, axis=-1)], axis=-1
+        )[:, None, :],
+        img.shape).astype(np.uint8)    
+    
 
 
 def __order_filter(img, kernel_size, order_func, func_name=''):
     kernel_size = __check_spacial_filter_kernel_size(
         kernel_size, func_name)
-    return np.stack(
+    return __image_reshape(
+        np.stack(
             order_func(
                 __array_to_vector(img, (kernel_size, kernel_size)), axis=2
             ), axis=-1
-        ).reshape(img.shape).astype(np.uint8)
+        )[:, None, :],
+        img.shape).astype(np.uint8)
 
 
 def median_filter(img, kernel_size=3):
@@ -150,9 +166,20 @@ def min_filter(img, kernel_size=3):
 
 
 def midpoint_filter(img, kernel_size=3):
-    return (
-            (max_filter(img, kernel_size)+min_filter(img, kernel_size))/2.0
-        ).astype(np.uint8)
+    kernel_size = __check_spacial_filter_kernel_size(
+        kernel_size, 'midpoint_filter')
+    lab_img = cv2.cvtColor(img, cv2.COLOR_BGR2Lab)
+    min_l = np.min(
+        __array_to_vector(
+            lab_img[:, :, 0][:, :, None], (kernel_size, kernel_size)), axis=2)
+    max_l = np.max(
+        __array_to_vector(
+            lab_img[:, :, 0][:, :, None], (kernel_size, kernel_size)), axis=2)
+    img_l = (min_l+max_l) / 2.0
+    lab_img[:, :, 0] = np.array(
+        [img_l[0, img.shape[1]*i:img.shape[1]*(i+1)]
+        for i in range(img.shape[0])])
+    return cv2.cvtColor(lab_img, cv2.COLOR_Lab2BGR).astype(np.uint8)
 
 
 def sharpen_filter(img, center_value=5):
@@ -188,35 +215,46 @@ def histogram_equalization(img):
     accumulate = (
         new_val / (accumulate.max()-accumulate.min())
     ).astype(np.uint8)
-    return accumulate[img].reshape(img.shape)
+    return accumulate[img]
+
+
+def HSV_adjust(img, H=0, S=0, V=0):
+    H = H*10 if H < 7.5 else -(H-7.5)*10
+    S = S*10 if S < 7.5 else -(S-7.5)*10
+    V = V*10 if V < 7.5 else -(V-7.5)*10
+    hsv_img = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+    hsv_img = hsv_img + np.array([H, S, V])
+    return cv2.cvtColor(hsv_img.astype(np.uint8), cv2.COLOR_HSV2BGR)
 
 
 # List all available functions.
 func_list = [
     gamma_correction,
+    histogram_equalization,
     box_filter,
     gaussian_filter,
     bilateral_filter,
     sharpen_filter,
-    midpoint_filter,
-    histogram_equalization,
     median_filter,
     max_filter,
     min_filter,
+    midpoint_filter,
+    HSV_adjust,
 ]
 func_name_list = [func.__name__ for func in func_list]
 # The name of parameters for each function.
 func_param_name = [
     ['c', 'gamma'],     # gamma_correction
+    [],                 # histogram_equalization
     ['kernel_size'],    # box_filter
     ['kernel_size', 'sigma'],    # gaussian_filter
-    ['kernel_size', 'sigma'],    # bilateral_filter
+    ['kernel_size', 'sigma1', 'sigma2'],    # bilateral_filter
     ['center_value'],   # sharpen_filter
-    ['kernel_size'],    # midpoint_filter
-    [],                 # histogram_equalization
     ['kernel_size'],    # median_filter
     ['kernel_size'],    # max_filter
     ['kernel_size'],    # min_filter
+    ['kernel_size'],    # midpoint_filter
+    ['H', 'S', 'V'],    # HSV_adjust
 ]
 
 def func_name_to_id(func_name):
