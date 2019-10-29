@@ -160,6 +160,7 @@ class Application(tk.Frame):
         self.canvas.itemconfig(self.image_on_canvas, image=self.canvas_photo)
         self.__clear_scale()
         self.listbox.delete(0, 'end')
+        self.listbox.insert(0, *img_ds.image[img_id].func)
 
 
     # Activate while option menu select a function.
@@ -168,10 +169,13 @@ class Application(tk.Frame):
         func_param_len = len(img_f.func_param_name[func_id])
         param_len = len(self.label) - 2
         for i in range(func_param_len):
-            self.label[i+2]['text'] = img_f.func_param_name[func_id][i]
+            param_name = img_f.func_param_name[func_id][i]
+            self.label[i+2]['text'] = param_name
+            self.scale[i].config(**img_f.param_scale[param_name])
         if param_len-1 > func_param_len:
             for i in range(func_param_len, param_len-2):
                 self.label[i+2]['text'] = '---'
+                self.scale[i].config(from_=0, to=15, resolution=0.01)
         self.__clear_scale()
 
 
@@ -243,10 +247,13 @@ class Application(tk.Frame):
             func_id = img_f.func_name_to_id(img_ds.image[img_id].func[pos])
             param_len = len(img_ds.image[img_id].func_param[pos])
             for i in range(param_len):
-                self.label[i+2]['text'] = img_f.func_param_name[func_id][i]
+                param_name = img_f.func_param_name[func_id][i]
+                self.label[i+2]['text'] = param_name
+                self.scale[i].config(**img_f.param_scale[param_name])
                 self.scale[i].set(img_ds.image[img_id].func_param[pos][i])
             for i in range(param_len, len(self.label)-4):
                 self.label[i+2]['text'] = '---'
+                self.scale[i].config(from_=0, to=15, resolution=0.01)
                 self.scale[i].set(0.0)
             self.button[-1]['text'] = 'Done'
             # Change button command.
@@ -274,9 +281,12 @@ class Application(tk.Frame):
             func_id = img_f.func_name_to_id(self.option_var[1].get())
             param_len = len(img_f.func_param_name[func_id])
             for i in range(param_len):
-                self.label[i+2]['text'] = img_f.func_param_name[func_id][i]
+                param_name = img_f.func_param_name[func_id][i]
+                self.label[i+2]['text'] = param_name
+                self.scale[i].config(**img_f.param_scale[param_name])
             for i in range(param_len, len(self.label)-4):
                 self.label[i+2]['text'] = '---'
+                self.scale[i].config(from_=0, to=15, resolution=0.01)
             self.button[-1]['text'] = 'Edit'
             # Change button command.
             self.button[-1].config(command=self.edit_function)

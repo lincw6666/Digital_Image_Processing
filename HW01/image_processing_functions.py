@@ -74,13 +74,13 @@ def __convolution(img, kernel):
 
 
 def gamma_correction(img, c=1.0, gamma=1.0):
-    # Check arguements.
-    try:
-        c = float(c)
-        gamma = float(gamma)
-    except:
-        print('[gamma_correction] Error!! Invalid arguements\' type!!')
-        sys.exit(0)
+    # # Check arguements.
+    # try:
+    #     c = float(c)
+    #     gamma = float(gamma)
+    # except:
+    #     print('[gamma_correction] Error!! Invalid arguements\' type!!')
+    #     sys.exit(0)
 
     # Main task.
     return np.uint8(c * pow(img/255.0, gamma) * 255.0)
@@ -88,7 +88,7 @@ def gamma_correction(img, c=1.0, gamma=1.0):
 
 def __check_spacial_filter_kernel_size(kernel_size, err_msg):
     try:
-        kernel_size = round(kernel_size)
+        kernel_size = int(kernel_size)
         assert kernel_size%2 != 0
         return kernel_size
     except:
@@ -183,7 +183,7 @@ def midpoint_filter(img, kernel_size=3):
 
 
 def sharpen_filter(img, center_value=5):
-    center_value = round(center_value)
+    center_value = int(center_value)
     assert (center_value==5) or (center_value==9),\
         '[sharpen_filter] Error!! Invalid center value!! : '+\
             str(center_value)
@@ -199,11 +199,10 @@ def sharpen_filter(img, center_value=5):
              [-1, 9, -1,],
              [-1, -1, -1]])
     ret = __convolution(img, kernel)
-    ret = ret - np.min(ret)
-    return (255.0*ret/np.max(ret)).astype(np.uint8)
+    return np.clip(ret, 0, 255).astype(np.uint8)
 
 
-def histogram_equalization(img):
+def histogram_equalization(img, min_val, max_val):
     hist = np.zeros(256)
     for pixel in img.flatten():
         hist[pixel] += 1
@@ -211,7 +210,7 @@ def histogram_equalization(img):
     for x in hist:
         accumulate.append(accumulate[-1] + x)
     accumulate = np.array(accumulate)
-    new_val = (accumulate-accumulate.min()) * 255
+    new_val = (accumulate-accumulate.min()) * (max_val-min_val) + min_val
     accumulate = (
         new_val / (accumulate.max()-accumulate.min())
     ).astype(np.uint8)
@@ -219,11 +218,8 @@ def histogram_equalization(img):
 
 
 def HSV_adjust(img, H=0, S=0, V=0):
-    H = H*10 if H < 7.5 else -(H-7.5)*10
-    S = S*10 if S < 7.5 else -(S-7.5)*10
-    V = V*10 if V < 7.5 else -(V-7.5)*10
     hsv_img = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-    hsv_img = hsv_img + np.array([H, S, V])
+    hsv_img = np.clip(hsv_img+np.array([H, S, V]), 0, 255)
     return cv2.cvtColor(hsv_img.astype(np.uint8), cv2.COLOR_HSV2BGR)
 
 
@@ -245,7 +241,7 @@ func_name_list = [func.__name__ for func in func_list]
 # The name of parameters for each function.
 func_param_name = [
     ['c', 'gamma'],     # gamma_correction
-    [],                 # histogram_equalization
+    ['min_val', 'max_val'],                 # histogram_equalization
     ['kernel_size'],    # box_filter
     ['kernel_size', 'sigma'],    # gaussian_filter
     ['kernel_size', 'sigma1', 'sigma2'],    # bilateral_filter
@@ -256,6 +252,20 @@ func_param_name = [
     ['kernel_size'],    # midpoint_filter
     ['H', 'S', 'V'],    # HSV_adjust
 ]
+param_scale = {
+    'c': {'from_': 0, 'to': 2, 'resolution': 0.01},
+    'gamma': {'from_': 0, 'to': 10, 'resolution': 0.01},
+    'min_val': {'from_': 0, 'to': 100, 'resolution': 1.0},
+    'max_val': {'from_': 155, 'to': 255, 'resolution': 1.0},
+    'kernel_size': {'from_': 3, 'to': 15, 'resolution': 1.0},
+    'sigma': {'from_': 1, 'to': 5, 'resolution': 1.0},
+    'sigma1': {'from_': 1, 'to': 100, 'resolution': 1.0},
+    'sigma2': {'from_': 1, 'to': 100, 'resolution': 1.0},
+    'center_value': {'from_': 5, 'to': 9, 'resolution': 1.0},
+    'H': {'from_': -100, 'to': 100, 'resolution': 1.0},
+    'S': {'from_': -100, 'to': 100, 'resolution': 1.0},
+    'V': {'from_': -100, 'to': 100, 'resolution': 1.0},
+}
 
 def func_name_to_id(func_name):
     return func_name_list.index(func_name)
