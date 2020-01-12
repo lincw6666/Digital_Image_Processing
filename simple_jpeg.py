@@ -83,32 +83,11 @@ class Compression:
                         axis=(1, 2)) / block_size
             return coef
         
+        # Follow the zig-zag order to walk through a matrix.
         def _zigzag_walk(self, func, block_size, **kwargs):
             idx = 0
             for j, k in iter(self.Zigzag(block_size)):
                 func(idx, j, k, block_size, **kwargs)
-                idx += 1
-
-        # We follow the zig-zag order to decompose the big transform matrix
-        # into several basic blocks.
-        #
-        # @mat: the big transform matrix.
-        def _build_basic_block(self, mat, block_size):
-            self.basic_block = np.zeros((mat.shape[0], block_size, block_size))
-            idx = 0
-            # for i in range(2*block_size-1):
-            #     j_start = min(block_size-1, i)
-            #     j_end = max(i-block_size, -1)
-            #     for j in range(j_start, j_end, -1):
-            #         if i%2 == 0:
-            #             k = i - j
-            #         else:
-            #             k = j
-            #             j = i - j
-            for j, k in iter(self.Zigzag(block_size)):
-                self.basic_block[idx] = mat[
-                    j*block_size:(j+1)*block_size,
-                    k*block_size:(k+1)*block_size]
                 idx += 1
 
         # Walsh-Hadamard Transform
@@ -121,7 +100,6 @@ class Compression:
                 return int('{:0{width}b}'.format(num, width=width)[::-1], 2)
 
             def _wht_basic_block(idx, j, k, block_size, mat):
-                print(mat)
                 self.basic_block[idx] = mat[
                     j*block_size:(j+1)*block_size,
                     k*block_size:(k+1)*block_size]
@@ -139,7 +117,6 @@ class Compression:
             walsh = hadamard[perm]
 
             # Build the basic blocks.
-            # self._build_basic_block(walsh, block_size)
             self.basic_block = np.zeros((size, block_size, block_size))
             self._zigzag_walk(_wht_basic_block, block_size, mat=walsh)
 
@@ -153,7 +130,6 @@ class Compression:
             dct = np.zeros((size, size))
 
             # Build the basic blocks.
-            self._build_basic_block(dct, block_size)
 
             # Apply the transformation.
             return self._do_transform(img, block_size)
@@ -161,31 +137,13 @@ class Compression:
         # Discrete Fourier Transform
         def _dft(self, img, block_size):
 
-            def _core_dft(x, N):
-                return np.exp(-1j*2*np.pi*x/N)
-
-            # Build the basic blocks.
-            self.basic_block = np.zeros(
-                (block_size**2, block_size, block_size), dtype=np.complex)
-            lookup = np.zeros(
-                (2*block_size**2-4*block_size+3, ), dtype=np.complex)
-            idx = 0
-            # for i in range(2*block_size-1):
-            #     j_start = min(block_size-1, i)
-            #     j_end = max(i-block_size, -1)
-            #     for j in range(j_start, j_end, -1):
-            #         if i%2 == 0:
-            #             k = i - j
-            #         else:
-            #             k = j
-            #             j = i - j
-            for j, k in iter(self.Zigzag(block_size)):
+            def _dft_basic_block(idx, j, k, block_size, lookup):
                 for x in range(block_size):
                     for y in range(block_size):
                         tmp = j*x + k*y
                         # Fill up the lookup table.
                         if lookup[tmp] == 0:
-                            tmp_dft = _core_dft(tmp, block_size)
+                            tmp_dft = np.exp(-1j*2*np.pi*tmp/block_size)
                             # Set very small number to zero.
                             tmp_real, tmp_imag = tmp_dft.real, tmp_dft.imag
                             if -1e-14 < tmp_real < 1e-14:
@@ -195,7 +153,13 @@ class Compression:
                             # Store the correct value to lookup table.
                             lookup[tmp] = tmp_real + 1j*tmp_imag
                         self.basic_block[idx, x, y] = lookup[tmp]
-                idx += 1
+            
+            # Build the basic blocks.
+            self.basic_block = np.zeros(
+                (block_size**2, block_size, block_size), dtype=np.complex)
+            lookup = np.zeros(
+                (2*block_size**2-4*block_size+3, ), dtype=np.complex)
+            self._zigzag_walk(_dft_basic_block, block_size, lookup=lookup)
 
             # Apply the transformation.
             coef = self._do_transform(img, block_size)
@@ -270,6 +234,6 @@ class Compression:
 
 
 if __name__ == '__main__':
-    compress = Compression(None, 4)#, transform_method='DFT')
+    compress = Compression(None, 4, transform_method='DFT')
     compress.compress()
     compress.reconstruct()
