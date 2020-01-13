@@ -1,6 +1,6 @@
 import gc   # For garbage collection.
-# import cv2
-import math
+import cv2
+from math import ceil
 import numpy as np
 
 
@@ -58,7 +58,7 @@ class Compression:
         # Wrapper function for all inverse transforms.
         def inverse_transform(self, coef, block_size):
             assert self.basic_block is not None, \
-                '[inverse_transform]Need to do forward transform first!!'
+                '[inverse_transform] Need to do forward transform first!!'
             h, w = self.num_of_block
             img = np.zeros((h*block_size, w*block_size))
             for i in range(h):
@@ -70,8 +70,8 @@ class Compression:
             return np.round(img).astype(np.uint8)
 
         def _do_transform(self, img, block_size):
-            h = math.ceil(img.shape[0]/block_size)
-            w = math.ceil(img.shape[1]/block_size)
+            h = ceil(img.shape[0]/block_size)
+            w = ceil(img.shape[1]/block_size)
             self.num_of_block = (h, w)
             coef = np.zeros((h*w, block_size**2), dtype=self.basic_block.dtype)
             for i in range(h):
@@ -214,11 +214,12 @@ class Compression:
 
         # Choose K first coefficient.
         def _k_first(self, coef, block_size, K):
-            pass
+            coef[:, K:] = 0
 
         # Choose K largest coefficient.
         def _k_largest(self, coef, block_size, K):
-            pass
+            index = np.argsort(np.abs(coef), axis=1)
+            np.put_along_axis(coef, index[:, :block_size**2-K], 0, axis=1)
 
         # Total N bits for coefficients. How many bits for a specific coefficient
         # depend on its variances over all blocks.
@@ -226,22 +227,32 @@ class Compression:
         # Then the number of bits for that coefficient is ni = round(N*qi/sum(qi)).
         def _total_N(self, coef, block_size, N):
             # Variance of each coefficient.
-            def _variance():
-                return 0
+            variance = np.log2(np.var(coef, axis=0))
+            variance = np.where(variance<0, 0, variance)
 
             # Bits for a specific coefficient.
-            def _bits_for_coef(variance):
-                return 0
+            bits = np.round(variance*N/np.sum(variance))
+            bits = np.where(bits<0, 0, bits)
+            idx = np.where(bits!=0)[0][None, :]
+            np.put_along_axis(coef, np.where(bits==0)[0][None, :], 0, axis=1)
 
-            # Main works.
-            variance = _variance()
-            bits = _bits_for_coef(variance)
-            pass
+            # Quantize each coefficient.
+            bits = bits[idx]
+            tmp_coef = np.take_along_axis(coef, idx, axis=1)
+            min_coef = np.min(tmp_coef, axis=0)
+            coef_range = np.max(tmp_coef, axis=0) - min_coef
+            interval = np.where(coef_range!=0, coef_range/bits, 0)
+            factor = np.floor((tmp_coef-min_coef) / interval)
+            tmp_coef = (2*min_coef + interval*factor + interval*(factor+1))/2
+            coef[:, idx[0]] = tmp_coef
 
 
     def __init__(self, img_path, block_size, transform_method='WHT',
         quantization_method='K First', N_K=32):
-        self.img = np.array([[0, 1, 2, 3], [4, 5, 6, 7], [8, 9, 0, 1], [2, 3, 4, 5]])#cv2.imread(img_path)
+        assert quantization_method=='Total N' or N_K <= block_size**2, '[__init__] N_K must <= block_size^2 !'
+        self.img = np.array(
+            [[0, 1, 2, 3], [4, 5, 6, 7], [8, 9, 0, 1], [2, 3, 4, 5],
+             [9, 8, 7, 6], [5, 4, 3, 2], [1, 0, 9, 8], [7, 6, 5, 4]])
         self.coef = None
         self.block_size = block_size
         self.transform = self.Transform(transform_method)
@@ -252,17 +263,19 @@ class Compression:
         self.coef = self.transform.transform(self.img, self.block_size)
         self.img = None
         gc.collect()
-        #self.quantization.quantization(self.coef, self.block_size)
+        self.quantization.quantization(self.coef, self.block_size)
 
     # Reconstruction
     def reconstruct(self):
         self.img = self.transform.inverse_transform(self.coef, self.block_size)
         self.coef = None
         gc.collect()
-        print(self.img)
 
 
 if __name__ == '__main__':
-    compress = Compression(None, 4, transform_method='WHT')
+    compress = Compression(
+        None, 4,
+        transform_method='DCT', quantization_method='K First', N_K=12)
     compress.compress()
     compress.reconstruct()
+    print(compress.img)
