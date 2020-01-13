@@ -67,7 +67,7 @@ class Compression:
                     img[y:(y+block_size), x:(x+block_size)] = \
                         (np.sum(self.basic_block*coef[i*w+j, :, None, None], \
                             axis=0) / block_size).real
-            return img.astype(np.uint8)
+            return np.round(img).astype(np.uint8)
 
         def _do_transform(self, img, block_size):
             h = math.ceil(img.shape[0]/block_size)
@@ -125,11 +125,40 @@ class Compression:
 
         # Discrete Cosine Transform
         def _dct(self, img, block_size):
-            # Build the DCT matrix.
-            size = block_size ** 2
-            dct = np.zeros((size, size))
+
+            def _dct_basic_block(idx, j, k, block_size, lookup):
+
+                def _update_lookup(x, j):
+                    tmp_val = np.cos((x+0.5)*j*np.pi/block_size)
+                    # Set very small number to zero.
+                    if -1e-14 < tmp_val < 1e-14:
+                        return 0.0
+                    return tmp_val
+
+                for x in range(block_size):
+                    for y in range(block_size):
+                        # Fill up the lookup table.
+                        if lookup[x, j] == 0:
+                            lookup[x, j] = _update_lookup(x, j)
+                        if lookup[y, k] == 0:
+                            lookup[y, k] = _update_lookup(y, k)
+                        # Store the value to basic blocks.
+                        self.basic_block[idx, x, y] = \
+                            lookup[x, j] * lookup[y, k]
+                w = 1
+                if j!=0 and k!=0:
+                    w = 2
+                elif j!=0 or k!=0:
+                    w = np.sqrt(2)
+                if w != 1:
+                    self.basic_block[idx] = self.basic_block[idx] * w
+
 
             # Build the basic blocks.
+            self.basic_block = np.zeros(
+                (block_size**2, block_size, block_size))
+            lookup = np.zeros((block_size, block_size))
+            self._zigzag_walk(_dct_basic_block, block_size,lookup=lookup)
 
             # Apply the transformation.
             return self._do_transform(img, block_size)
@@ -234,6 +263,6 @@ class Compression:
 
 
 if __name__ == '__main__':
-    compress = Compression(None, 4, transform_method='DFT')
+    compress = Compression(None, 4, transform_method='WHT')
     compress.compress()
     compress.reconstruct()
