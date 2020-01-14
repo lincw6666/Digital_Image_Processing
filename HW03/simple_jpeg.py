@@ -237,22 +237,45 @@ class Compression:
             np.put_along_axis(coef, np.where(bits==0)[0][None, :], 0, axis=1)
 
             # Quantize each coefficient.
-            bits = bits[idx]
             tmp_coef = np.take_along_axis(coef, idx, axis=1)
             min_coef = np.min(tmp_coef, axis=0)
             coef_range = np.max(tmp_coef, axis=0) - min_coef
-            interval = np.where(coef_range!=0, coef_range/bits, 0)
-            factor = np.floor((tmp_coef-min_coef) / interval)
-            tmp_coef = (2*min_coef + interval*factor + interval*(factor+1))/2
+            if coef_range.dtype != complex:
+                bits = 2**bits[idx]
+                interval = np.where(coef_range!=0, coef_range/bits, 0)
+                factor = np.floor((tmp_coef-min_coef) / interval)
+                tmp_coef = \
+                    (2*min_coef + interval*factor + interval*(factor+1))/2
+            else:
+                bits = 2**(np.round(bits[idx]/2))
+                interval_real = \
+                    np.where(coef_range.real!=0, coef_range.real/bits, 0)
+                interval_imag = \
+                    np.where(coef_range.imag!=0, coef_range.imag/bits, 0)
+                factor_real = np.where(
+                    interval_real != 0,
+                    np.floor((tmp_coef-min_coef).real / interval_real),
+                    0
+                )
+                factor_imag = np.where(
+                    interval_imag != 0.,
+                    np.floor((tmp_coef-min_coef).imag / interval_imag),
+                    0
+                )
+                tmp_coef = (
+                    2*min_coef + \
+                    interval_real*factor_real + \
+                    interval_real*(factor_real+1) + \
+                    1j*interval_imag*factor_imag + \
+                    1j*interval_imag*(factor_imag+1))/2
             coef[:, idx[0]] = tmp_coef
 
 
     def __init__(self, img_path, block_size, transform_method='WHT',
         quantization_method='K First', N_K=32):
-        assert quantization_method=='Total N' or N_K <= block_size**2, '[__init__] N_K must <= block_size^2 !'
-        self.img = np.array(
-            [[0, 1, 2, 3], [4, 5, 6, 7], [8, 9, 0, 1], [2, 3, 4, 5],
-             [9, 8, 7, 6], [5, 4, 3, 2], [1, 0, 9, 8], [7, 6, 5, 4]])
+        assert quantization_method=='Total N' or N_K <= block_size**2, \
+            '[__init__] N_K must <= block_size^2 !'
+        self.img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
         self.coef = None
         self.block_size = block_size
         self.transform = self.Transform(transform_method)
@@ -270,12 +293,3 @@ class Compression:
         self.img = self.transform.inverse_transform(self.coef, self.block_size)
         self.coef = None
         gc.collect()
-
-
-if __name__ == '__main__':
-    compress = Compression(
-        None, 4,
-        transform_method='DCT', quantization_method='K First', N_K=12)
-    compress.compress()
-    compress.reconstruct()
-    print(compress.img)
